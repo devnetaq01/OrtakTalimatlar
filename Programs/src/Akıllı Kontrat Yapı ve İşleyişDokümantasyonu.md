@@ -64,17 +64,39 @@ Her adım, `lib.rs` içindeki sırasıyla çağrılan fonksiyonları ve alt işl
 
 ### 3.1 Entry Point’leri İşaretle
 
-| Entry Point Fonksiyon    | Açıklama ve İşleyiş Detayları                                                                                                                                                                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `initialize`             | - config hesabını ayarlar: `total_minted = 0`, `max_supply = 9_000_000_000`, `transfer_tax_bps = 250`.  <br/>- Mint hesabının `decimals` değeri kontrol edilir.                                                                                         |
-| `mint_tokens`            | - `requested_amount` ve `remaining_supply` karşılaştırılır.  <br/>- Oracle fiyat sapması (SOL/USD ve USDT/USD) kontrolü yapılır (sapma ≤ %4).  <br/>- Otonom limitler kontrol edilir. <br/>- `mint_to` CPI çağrılır. <br/>- `total_minted` güncellenir. |
-| `burn_tokens`            | - `burn` CPI çağrısı ile `from` hesabından token yakma işlemi yapılır.                                                                                                                                                                                  |
-| `transfer_tokens`        | - Transfer vergisi hesaplanır: `tax = amount * tax_bps / 10000`.  <br/>- Vergi treasury hesabına, kalan miktar hedef hesaba CPI ile aktarılır.                                                                                                          |
-| `swap_tokens`            | - `swap` CPI çağrısı ile on-chain swap gerçekleştirilir.                                                                                                                                                                                                |
-| `send_cross_chain`       | - `bridge::send_cross_chain` fonksiyonuna yönlendirme yapılır.                                                                                                                                                                                          |
-| `receive_cross_chain`    | - `bridge::receive_cross_chain` fonksiyonuna yönlendirme yapılır.                                                                                                                                                                                       |
-| `open_futures_position`  | - `futures::open_position` fonksiyonuna yönlendirme yapılır.                                                                                                                                                                                            |
-| `close_futures_position` | - `futures::close_position` fonksiyonuna yönlendirme yapılır.                                                                                                                                                                                           |
+| Entry Point Fonksiyon    | Açıklama ve İşleyiş Detayları                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialize`             | - config hesabını ayarlar: `total_minted = 0`, `max_supply = 9_000_000_000`, `transfer_tax_bps = 250`.  <br/>- Mint hesabının `decimals` değeri kontrol edilir.  <br/>- `extensions` dizisi (`MintCloseAuthority`, `TransferFeeConfig`, `TransferHook`, `NonTransferable`) initialize edilir.  <br/>- **`token_program`** hesabı, tüm CPI çağrıları için referans olarak kullanılır.                                                                                                                        |
+| `mint_tokens`            | - `requested_amount` ve `remaining_supply` karşılaştırılır.  <br/>- Oracle fiyat sapması kontrolü yapılır (sapma ≤ %4) ve **`token_program`**, **`mint_authority`**, **`clock`**, **`pyth`/`chainlink`** hesapları kullanılır.  <br/>- Otonom limitler kontrolü (`autonomy::enforce_dynamic_limits`) için **`clock`** ve **`autonomy_config`** hesapları kullanılır. <br/>- `mint_to` CPI çağrılır (kullanılan **`token_program`**, **`mint_authority`** signer). <br/>- `config.total_minted` güncellenir. |
+| `burn_tokens`            | - `burn` CPI çağrısı ile **`token_program`**, `token_account` (yakılacak token hesabı) ve `owner` (hesap sahibi/authority) hesapları kullanılarak token yakma işlemi yapılır.                                                                                                                                                                                                                                                                                                                               |
+| `transfer_tokens`        | - Transfer vergisi hesaplanır: `tax = amount * tax_bps / 10000`.  <br/>- **Okunan Hesaplar:** `config` (transfer\_tax\_bps)<br/>- **CPI’de Kullanılan Hesaplar:** `from`, `treasury`, `to`, **`token_program`**, **`authority`** (transfer authority).                                                                                                                                                                                                                                                      |
+| `swap_tokens`            | - `swap` CPI çağrısı ile on-chain swap gerçekleştirilir; kullanılan **`token_swap_program`** parametresi flowchart ve hesap listelerinde açıkça belirtilmiştir.                                                                                                                                                                                                                                                                                                                                             |
+| `send_cross_chain`       | - `bridge::send_cross_chain` fonksiyonuna yönlendirme yapılır (köprü program ID ve geçici köprü hesapları).                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `receive_cross_chain`    | - `bridge::receive_cross_chain` fonksiyonuna yönlendirme yapılır (köprü program ID ve geçici köprü hesapları).                                                                                                                                                                                                                                                                                                                                                                                              |
+| `open_futures_position`  | - `futures::open_position` fonksiyonuna yönlendirme yapılır (pozisyon, teminat, risk parametre hesapları).                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `close_futures_position` | - `futures::close_position` fonksiyonuna yönlendirme yapılır (pozisyon kapatma hesabı).                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+\-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+\| `initialize`                | - config hesabını ayarlar: `total_minted = 0`, `max_supply = 9_000_000_000`, `transfer_tax_bps = 250`.  <br/>- Mint hesabının `decimals` değeri kontrol edilir.  <br/>- `extensions` dizisi (`MintCloseAuthority`, `TransferFeeConfig`, `TransferHook`, `NonTransferable`) initialize edilir.  <br/>- **`token_program`** hesabı, tüm CPI çağrıları için referans olarak kullanılır. |
+\| `mint_tokens`               | - `requested_amount` ve `remaining_supply` karşılaştırılır.  <br/>- Oracle fiyat sapması kontrolü yapılır (sapma ≤ %4) ve **`token_program`**, **`mint_authority`** (PDA signer), **`clock`**, **`pyth`/`chainlink`** hesapları kullanılır.  <br/>- Otonom limitler kontrolü (`autonomy::enforce_dynamic_limits`) **clock** hesabıyla yapılır. <br/>- `mint_to` CPI çağrılır (kullanılan **token\_program**). <br/>- `config.total_minted` güncellenir. |
+\| `burn_tokens`               | - `burn` CPI çağrısı ile `token_account` (yakılacak token hesabı) ve `owner` (hesap sahibi/authority) hesapları kullanılarak token yakma işlemi yapılır (**token\_program** ile).                                                                                                                                                                                                                                                                                           |
+\| `transfer_tokens`           | - Transfer vergisi hesaplanır: `tax = amount * tax_bps / 10000`.  <br/>- Vergi treasury hesabına ve kalan miktar alıcı hesabına transfer edilir; CPI çağrılarında **token\_program** ve **authority** (transfer authority) hesapları kullanılır.                                                                                                                                                                                                                               |
+\| `swap_tokens`               | - `swap` CPI çağrısı ile on-chain swap gerçekleştirilir; kullanılan **token\_swap\_program** parametresi flowchart ve hesap listelerinde açıkça belirtilmiştir.                                                                                                                                                                                                                                                                                                                    |
+\| `send_cross_chain`          | - `bridge::send_cross_chain` fonksiyonuna yönlendirme yapılır (köprü program ID, geçici hesaplar).                                                                                                                                                                                                                                                                                                                                                                                |
+\| `receive_cross_chain`       | - `bridge::receive_cross_chain` fonksiyonuna yönlendirme yapılır (köprü program ID, nonce ve payload hesapları).                                                                                                                                                                                                                                                                                                                                                                 |
+\| `open_futures_position`     | - `futures::open_position` fonksiyonuna yönlendirme yapılır (pozisyon, teminat, risk parametre hesapları).                                                                                                                                                                                                                                                                                                                                                                        |
+\| `close_futures_position`    | - `futures::close_position` fonksiyonuna yönlendirme yapılır (pozisyon kapatma hesabı).                                                                                                                                                                                                                                                                                                                                                                                          |
+
+\-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+\| `initialize`                | - config hesabını ayarlar: `total_minted = 0`, `max_supply = 9_000_000_000`, `transfer_tax_bps = 250`.  <br/>- Mint hesabının `decimals` değeri kontrol edilir.                        |
+\| `mint_tokens`               | - `requested_amount` ve `remaining_supply` karşılaştırılır.  <br/>- Oracle fiyat sapması (SOL/USD ve USDT/USD) kontrolü yapılır (sapma ≤ %4).  <br/>- Otonom limitler kontrol edilir. <br/>- `mint_to` CPI çağrılır. <br/>- `total_minted` güncellenir. |
+\| `burn_tokens`               | - `burn` CPI çağrısı ile `from` hesabından token yakma işlemi yapılır.                                                                                                          |
+\| `transfer_tokens`           | - Transfer vergisi hesaplanır: `tax = amount * tax_bps / 10000`.  <br/>- Vergi treasury hesabına, kalan miktar hedef hesaba CPI ile aktarılır.                                      |
+\| `swap_tokens`               | - `swap` CPI çağrısı ile on-chain swap gerçekleştirilir.                                                                                                                        |
+\| `send_cross_chain`          | - `bridge::send_cross_chain` fonksiyonuna yönlendirme yapılır.                                                                                                              |
+\| `receive_cross_chain`       | - `bridge::receive_cross_chain` fonksiyonuna yönlendirme yapılır.                                                                                                           |
+\| `open_futures_position`     | - `futures::open_position` fonksiyonuna yönlendirme yapılır.                                                                                                                |
+\| `close_futures_position`    | - `futures::close_position` fonksiyonuna yönlendirme yapılır.                                                                                                               |
 
 ---
 
@@ -82,7 +104,7 @@ Her adım, `lib.rs` içindeki sırasıyla çağrılan fonksiyonları ve alt işl
 
 ### 4.1 `mint_tokens`
 
-* **Manipüle Edilen Hesaplar:** `config`, `pyth_sol_usd`, `chainlink_sol_usd`, `pyth_usdt_usd`, `chainlink_usdt_usd`, `mint`, `recipient`.
+* **Manipüle Edilen Hesaplar:** `config`, `pyth_sol_usd`, `chainlink_sol_usd`, `pyth_usdt_usd`, `chainlink_usdt_usd`, **`token_program`**, **`mint_authority`**, **`clock`**, `mint`, `recipient`, **`autonomy` modülü hesapları**.
 * **Adımlar:**
 
   1. `config.total_minted` ve `config.max_supply` kontrolü.
@@ -90,14 +112,20 @@ Her adım, `lib.rs` içindeki sırasıyla çağrılan fonksiyonları ve alt işl
   3. **Detaylı İşleyiş:**
 
      * `load_price_feed_from_account_info` ve `chainlink` entegrasyonuyla her iki feed’deki güncel fiyat merceklenir.
-     * Çakışan veya stale (güncel olmayan) veriler, timestamp karşılaştırmasıyla elenir; veri geçerliliği en son on-chain slot değeri veya oracledan gelen `publish_time` alanına bakılarak doğrulanır.
+     * Çakışan veya stale veriler, timestamp karşılaştırmasıyla elenir; veri geçerliliği `clock.publish_time` veya on-chain slot değeriyle kontrol edilir.
      * Fiyat sapması, normalleştirilmiş basis point (bps) cinsinden hesaplanır ve %4’e (400 bps) kadar izin verilir.
-  4. `autonomy::enforce_dynamic_limits` çağrısı ile otonom kontrol mekanizması devreye girer (saniyedeki mint hızı ve günlük limitler kontrol edilir).
-  5. `mint_to` CPI ile mint işlemi yapılır.
+  4. **Otonom Kontrol:** `autonomy::enforce_dynamic_limits` CPI çağrısı ile dinamik limitler kontrol edilir (kullanılan **clock** hesabı).
+  5. `mint_to` CPI ile mint işlemi yapılır (kullanılan **token\_program**, **mint\_authority** signer).
   6. `config.total_minted` güncellemesi.
 
 ### 4.2 `transfer_tokens`
 
+* **Manipüle Edilen Hesaplar:** `config`, `from`, `treasury`, `to`, **`token_program`**, **`authority`** (transfer authority).
+* **Adımlar:**
+
+  1. `tax_bps` okunur ve `tax = amount * tax_bps / 10000` hesaplanır.
+  2. Treasury hesabına vergi transferi (`TransferChecked` CPI) (kullanılan **token\_program**, **authority**).
+  3. Alıcı hesabına kalan miktar transferi (`TransferChecked` CPI) (aynı hesaplar). `transfer_tokens`
 * **Manipüle Edilen Hesaplar:** `config`, `from`, `treasury`, `to`.
 * **Adımlar:**
 
@@ -162,3 +190,37 @@ Her adım, `lib.rs` içindeki sırasıyla çağrılan fonksiyonları ve alt işl
 ---
 
 *Bu eklemeler, `lib.rs` ve `kontratYapıKavrama.md` belgelerinin tüm adımları bozmadan, %100 uyumluluk gözetilerek gerçekleştirilmiştir.*
+
+---
+
+## 7. Kontratın Nelere İhtiyacı Var
+
+### 7.1 Standart Hesaplar
+
+* **mint:** Token mint işlemleri için kullanılan hesap.
+* **config:** Konfigürasyon verilerini tutan hesap (`total_minted`, `max_supply`, `transfer_tax_bps`).
+* **authority (mint\_authority):** Mint işlemleri için program tarafından kullanılan yetkili hesap.
+* **recipient/accounts:** Token alıcı hesapları (`recipient`, `from`, `to`, `treasury`).
+* **token\_program:** Her CPI (mint\_to, burn, transfer\_checked) çağrısında kullanılan SPL Token program hesabı.
+* **token\_account & owner:** `burn_tokens` için kullanılan token hesabı (`token_account`) ve sahibi (`owner`) hesapları.
+
+### 7.2 Modül Hesapları
+
+* **bridge modülü:** `bridge::send_cross_chain` ve `bridge::receive_cross_chain` için gereken köprü program ID ve ara hesaplar.
+* **futures modülü:** `futures::open_position` ve `futures::close_position` için pozisyon ve teminat hesapları.
+* **autonomy modülü:** Dinamik limit kontrolleri için saat (`clock`) ve limit konfigürasyon hesapları.
+
+### 7.3 Veri Kaynakları (Oracles)
+
+* **Pyth Oracle Hesapları:** `pyth_sol_usd`, `pyth_usdt_usd` – Pyth SDK ile fiyat besleme hesapları.
+* **Chainlink Oracle Hesapları:** `chainlink_sol_usd`, `chainlink_usdt_usd` – Chainlink feed hesapları.
+* **Ek hesap:** Zaman damgası ve slot kontrolü için `clock` hesabı.
+
+### 7.4 Piyasa Swap Havuzları
+
+* **SPL Token Swap Pool Hesapları:** `swap`, `authority`, `user_transfer_authority`, `source`, `destination`, `pool_token_a`, `pool_token_b`, `pool_mint`, `fee_account` – On-chain swap işlemleri için gerekli hesaplar.
+* **Swap Program ID:** `token_swap_program` hesabı (SPL Token Swap programı).
+
+---
+
+*Bu liste, `lib.rs` kodu üzerinden tüm hesap bağlantılarını ve dış veri kaynaklarını kapsayacak şekilde hazırlanmıştır.*
